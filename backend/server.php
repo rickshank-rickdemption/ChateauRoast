@@ -1161,6 +1161,7 @@ function sendReportData($pdo, $clientSocket, $fromDate, $toDate) {
 function perform_handshake($receved_header, $client_conn, $host, $port) {
     global $clientSessions, $clients;
     $headers = array();
+    $headersLower = array();
     if (!is_string($receved_header) || trim($receved_header) === '') {
         return false;
     }
@@ -1169,13 +1170,14 @@ function perform_handshake($receved_header, $client_conn, $host, $port) {
         $line = chop($line);
         if(preg_match('/\A(\S+): (.*)\z/', $line, $matches)) {
             $headers[$matches[1]] = $matches[2];
+            $headersLower[strtolower($matches[1])] = $matches[2];
         }
     }
-    if (!isset($headers['Sec-WebSocket-Key'])) {
+    if (!isset($headersLower['sec-websocket-key'])) {
         handleHttpRequest($receved_header, $client_conn, $clientSessions, $clients);
         return false;
     }
-    $secKey = $headers['Sec-WebSocket-Key'];
+    $secKey = $headersLower['sec-websocket-key'];
     $secAccept = base64_encode(pack('H*', sha1($secKey . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
     $buffer  = "HTTP/1.1 101 Switching Protocols\r\n" .
                "Upgrade: websocket\r\n" .
