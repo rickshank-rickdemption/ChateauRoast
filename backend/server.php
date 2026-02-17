@@ -596,6 +596,7 @@ function handleMessage($data, $clientSocket, $allClients, &$clientSessions) {
                 $name, $price, $category, $imageUrl, $stockQty, $productType,
                 $capacity, $weightLabel, $material, $description
             ]);
+            sendProductsList($pdo, $clientSocket);
             broadcastProductsList($pdo, $allClients);
         }
         elseif ($type === 'UPDATE_PRODUCT') {
@@ -637,6 +638,7 @@ function handleMessage($data, $clientSocket, $allClients, &$clientSessions) {
                     return;
                 }
             }
+            sendProductsList($pdo, $clientSocket);
             broadcastProductsList($pdo, $allClients);
         }
         elseif ($type === 'DELETE_PRODUCT') {
@@ -655,6 +657,7 @@ function handleMessage($data, $clientSocket, $allClients, &$clientSessions) {
                 sendError($clientSocket, "Product #$id not found.");
                 return;
             }
+            sendProductsList($pdo, $clientSocket);
             broadcastProductsList($pdo, $allClients);
         }
         elseif ($type === 'ADJUST_STOCK') {
@@ -672,6 +675,7 @@ function handleMessage($data, $clientSocket, $allClients, &$clientSessions) {
                 "UPDATE products SET stock_quantity = GREATEST(stock_quantity + ?, 0) WHERE id = ?"
             );
             $stmt->execute([$delta, $id]);
+            sendProductsList($pdo, $clientSocket);
             broadcastProductsList($pdo, $allClients);
         }
         elseif ($type === 'GET_SALES_SUMMARY') {
@@ -773,7 +777,7 @@ function sendProductsList($pdo, $clientSocket) {
         "SELECT id, name, price, category, image_url, stock_quantity, product_type,
                 capacity, weight_label, material, description
          FROM products
-         ORDER BY id ASC"
+         ORDER BY id DESC"
     );
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $response = mask(json_encode([
@@ -863,7 +867,7 @@ function broadcastProductsList($pdo, $clients) {
         "SELECT id, name, price, category, image_url, stock_quantity, product_type,
                 capacity, weight_label, material, description
          FROM products
-         ORDER BY id ASC"
+         ORDER BY id DESC"
     );
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $response = mask(json_encode([

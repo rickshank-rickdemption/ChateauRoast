@@ -7,6 +7,9 @@ import { FileText, Coffee, Users, Leaf, Clock3, CheckCircle2, AlertTriangle, Hou
 const ROLES = ['admin', 'kitchen'];
 const todayDate = new Date().toISOString().slice(0, 10);
 const MAX_LOCAL_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 1080;
+const TARGET_IMAGE_BYTES = 350 * 1024;
+const TARGET_ALPHA_IMAGE_BYTES = 700 * 1024;
 const MATCHA_KEYWORDS = ['matcha', 'green tea', 'uji', 'ceremonial'];
 const COFFEE_KEYWORDS = ['coffee', 'espresso', 'latte', 'cappuccino', 'americano', 'mocha', 'brew', 'macchiato', 'affogato'];
 const PASTRY_KEYWORDS = ['cookie', 'croissant', 'bagel', 'donut', 'timbit', 'smores', 'pop tart', 'siopao', 'pastry'];
@@ -107,6 +110,11 @@ function renderCategoryFallbackIcon(product) {
     </div>
   );
 }
+
+const estimateDataUrlBytes = (dataUrl) => {
+  const base64 = String(dataUrl || '').split(',')[1] || '';
+  return Math.ceil((base64.length * 3) / 4);
+};
 
 export default function AdminDashboard() {
   const { isReady, lastMessage, sendMessage } = useWebSocket();
@@ -468,29 +476,47 @@ export default function AdminDashboard() {
     if (!sent) setError('Request failed. WebSocket is not connected.');
   };
 
-  const createProduct = (e) => {
-    e.preventDefault();
+  const createProduct = () => {
     if (!isReady) {
       setError('Server is not connected. Please restart WebSocket server.');
       return;
     }
+    const name = String(productName || '').trim();
+    const normalizedPriceInput = String(productPrice || '').trim().replace(',', '.');
+    const normalizedStockInput = String(productStock || '').trim();
+    const price = parseFloat(normalizedPriceInput || '0');
+    const stock = normalizedStockInput === '' ? 0 : parseInt(normalizedStockInput, 10);
+    if (!name) {
+      setError('Product name is required.');
+      return;
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      setError('Enter a valid product price.');
+      return;
+    }
+    if (!Number.isFinite(stock) || Number.isNaN(stock) || stock < 0) {
+      setError('Enter a valid stock quantity.');
+      return;
+    }
     const sent = sendMessage('CREATE_PRODUCT', {
       auth_username: user?.username || '',
-      name: productName,
-      price: Number(productPrice),
-      category: productCategory,
+      name,
+      price,
+      category: String(productCategory || '').trim(),
       product_type: productType,
-      capacity: productCapacity,
-      weight_label: productWeightLabel,
-      material: productMaterial,
-      description: productDescription,
-      image_url: productImageUrl,
-      stock_quantity: Number(productStock)
+      capacity: String(productCapacity || '').trim(),
+      weight_label: String(productWeightLabel || '').trim(),
+      material: String(productMaterial || '').trim(),
+      description: String(productDescription || '').trim(),
+      image_url: String(productImageUrl || '').trim(),
+      stock_quantity: Math.floor(stock)
     });
     if (!sent) {
       setError('Request failed. WebSocket is not connected.');
       return;
     }
+    setError('');
+    sendMessage('GET_PRODUCTS');
     setProductName('');
     setProductPrice('');
     setProductCategory('');
@@ -679,9 +705,51 @@ export default function AdminDashboard() {
 
     const reader = new FileReader();
     reader.onload = () => {
-      const encoded = String(reader.result || '');
-      onValue(encoded);
-      setError('');
+      const source = String(reader.result || '');
+      if (!source) {
+        setError('Failed to read selected image file.');
+        return;
+      }
+
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSide = Math.max(img.width || 1, img.height || 1);
+        const scale = maxSide > MAX_IMAGE_DIMENSION ? MAX_IMAGE_DIMENSION / maxSide : 1;
+        const width = Math.max(1, Math.round((img.width || 1) * scale));
+        const height = Math.max(1, Math.round((img.height || 1) * scale));
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          setError('Image processing is not supported in this browser.');
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const sourceMime = String(file.type || '').toLowerCase();
+        const keepAlpha = sourceMime === 'image/png' || sourceMime === 'image/webp';
+        const outputMime = keepAlpha ? 'image/webp' : 'image/jpeg';
+        const targetBytes = keepAlpha ? TARGET_ALPHA_IMAGE_BYTES : TARGET_IMAGE_BYTES;
+
+        let quality = keepAlpha ? 0.9 : 0.88;
+        let output = canvas.toDataURL(outputMime, quality);
+        while (estimateDataUrlBytes(output) > targetBytes && quality > 0.35) {
+          quality -= 0.08;
+          output = canvas.toDataURL(outputMime, quality);
+        }
+
+        if (estimateDataUrlBytes(output) > targetBytes) {
+          setError('Image is still too large after compression. Use a smaller image.');
+          return;
+        }
+
+        onValue(output);
+        setError('');
+      };
+      img.onerror = () => setError('Failed to process selected image file.');
+      img.src = source;
     };
     reader.onerror = () => setError('Failed to read selected image file.');
     reader.readAsDataURL(file);
@@ -1467,7 +1535,7 @@ export default function AdminDashboard() {
                     </div>
                     <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-xl bg-[#f4f6ef]">
                       {product.image_url ? (
-                        <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                        <img src={product.image_url} alt={product.name} className="h-full w-full object-contain" />
                       ) : (
                         renderCategoryFallbackIcon(product)
                       )}
@@ -1779,14 +1847,20 @@ export default function AdminDashboard() {
                 Close
               </button>
             </div>
-            <form onSubmit={createProduct} className="flex-1 space-y-2 overflow-y-auto px-4 py-3 sm:px-5">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                createProduct();
+              }}
+              noValidate
+              className="flex-1 space-y-2 overflow-y-auto px-4 py-3 sm:px-5"
+            >
               <input
                 type="text"
                 value={productName}
                 onChange={(e) => setProductName(e.target.value)}
                 placeholder="Product name"
                 className="role-input !py-2 !text-sm"
-                required
               />
               <input
                 type="number"
@@ -1796,7 +1870,6 @@ export default function AdminDashboard() {
                 onChange={(e) => setProductPrice(e.target.value)}
                 placeholder="Price"
                 className="role-input !py-2 !text-sm"
-                required
               />
               <input
                 type="text"
@@ -1867,10 +1940,13 @@ export default function AdminDashboard() {
                 onChange={(e) => setProductStock(e.target.value)}
                 placeholder="Stock"
                 className="role-input !py-2 !text-sm"
-                required
               />
               <div className="sticky bottom-0 bg-white pb-1 pt-2">
-                <button type="submit" className="role-btn role-btn-primary w-full !py-2.5 !text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => createProduct()}
+                  className="role-btn role-btn-primary w-full !py-2.5 !text-[11px]"
+                >
                   Add Product
                 </button>
               </div>
