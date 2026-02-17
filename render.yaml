@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: chateauroast-ws-backend
+    env: php
+    plan: free
+    rootDir: .
+    buildCommand: ""
+    startCommand: php backend/server.php
+    autoDeploy: true
+    envVars:
+      - key: DB_DRIVER
+        value: pgsql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        value: postgres
+      - key: DB_USER
+        value: postgres
+      - key: DB_PASS
+        sync: false
+      - key: DB_SSLMODE
+        value: require
+
+  - type: web
+    name: chateauroast-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeploy: true
+    envVars:
+      - key: VITE_WS_URL
+        sync: false
