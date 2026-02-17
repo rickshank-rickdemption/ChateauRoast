@@ -1,11 +1,11 @@
 services:
   - type: web
     name: chateauroast-ws-backend
-    env: php
+    env: docker
     plan: free
     rootDir: .
-    buildCommand: ""
-    startCommand: php backend/server.php
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
     autoDeploy: true
     envVars:
       - key: DB_DRIVER
