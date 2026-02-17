@@ -1,6 +1,9 @@
-FROM php:8.2-cli-alpine
+FROM php:8.2-cli-bookworm
 
-RUN docker-php-ext-install sockets
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq-dev \
+    && docker-php-ext-install sockets \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
